@@ -468,7 +468,7 @@ ngx_http_proxy_connect_send_connection_established(ngx_http_request_t *r)
     c = r->connection;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                   "proxy_connect send 200 connection estatbilshed");
+                   "proxy_connect send 200 connection established");
 
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
 
@@ -490,7 +490,7 @@ ngx_http_proxy_connect_send_connection_established(ngx_http_request_t *r)
 
             if (b->pos == b->last) {
                 ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0,
-                              "proxy_connect sent 200 connection estatbilshed");
+                              "proxy_connect sent 200 connection established");
 
                 if (c->write->timer_set) {
                     ngx_del_timer(c->write);
@@ -832,7 +832,7 @@ ngx_http_proxy_connect_write_upstream(ngx_http_request_t *r,
 
     if (c->write->timedout) {
         ngx_connection_error(c, NGX_ETIMEDOUT,
-                             "upstream timed out (proxy_connect)");
+                             "upstream connection timed out (proxy_connect)");
         ngx_http_proxy_connect_finalize_request(r, u,
                                                 NGX_HTTP_GATEWAY_TIME_OUT);
         return;
@@ -880,7 +880,7 @@ ngx_http_proxy_connect_send_handler(ngx_http_request_t *r)
     ctx = ngx_http_get_module_ctx(r, ngx_http_proxy_connect_module);
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
-                   "proxy_connect send connection estatbilshed handler");
+                   "proxy_connect send connection established handler");
 
     if (c->write->timedout) {
         c->timedout = 1;
