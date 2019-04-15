@@ -832,7 +832,7 @@ ngx_http_proxy_connect_write_upstream(ngx_http_request_t *r,
 
     if (c->write->timedout) {
         ngx_connection_error(c, NGX_ETIMEDOUT,
-                             "upstream connection timed out (proxy_connect)");
+                             "upstream timed out (proxy_connect)");
         ngx_http_proxy_connect_finalize_request(r, u,
                                                 NGX_HTTP_GATEWAY_TIME_OUT);
         return;
