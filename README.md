@@ -129,7 +129,7 @@ The sequence diagram of above example is as following:
     |   Connection Established    |                          |
     |                             |                          |
     |                                                        |
-    ========= CONNECT tunnel has been establesied. ===========
+    ========= CONNECT tunnel has been established. ===========
     |                                                        |
     |                             |                          |
     |                             |                          |
