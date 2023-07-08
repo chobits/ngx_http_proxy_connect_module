@@ -1515,7 +1515,7 @@ ngx_http_proxy_connect_handler(ngx_http_request_t *r)
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                           "proxy_connect: %s in connect host \"%V\"",
                           url.err, &url.url);
-            return NGX_HTTP_FORBIDDEN;
+            return NGX_HTTP_BAD_REQUEST;
         }
 
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
