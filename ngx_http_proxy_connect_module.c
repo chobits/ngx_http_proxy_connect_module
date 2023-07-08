@@ -146,6 +146,9 @@ static ngx_int_t ngx_http_proxy_connect_sock_ntop(ngx_http_request_t *r,
 static ngx_int_t ngx_http_proxy_connect_create_peer(ngx_http_request_t *r,
     ngx_http_upstream_resolved_t *ur);
 
+#if (NGX_HTTP_V2)
+static void ngx_http_v2_proxy_connect_send_connection_established(ngx_http_request_t *r);
+#endif
 
 
 static ngx_command_t  ngx_http_proxy_connect_commands[] = {
@@ -577,6 +580,13 @@ ngx_http_proxy_connect_send_connection_established(ngx_http_request_t *r)
 
     ctx->send_established = 1;
 
+#if (NGX_HTTP_V2)
+    if (r->stream) {
+        ngx_http_v2_proxy_connect_send_connection_established(r);
+        return;
+    }
+#endif
+
     for (;;) {
         n = c->send(c, b->pos, b->last - b->pos);
 
@@ -645,6 +655,16 @@ ngx_http_proxy_connect_send_connection_established(ngx_http_request_t *r)
 }
 
 
+#if (NGX_HTTP_V2)
+static void
+ngx_http_v2_proxy_connect_send_connection_established(ngx_http_request_t *r)
+{
+    // A proxy that supports CONNECT establishes a TCP connection [TCP] to the server identified in the :authority pseudo-header field. Once this connection is successfully established, the proxy sends a HEADERS frame containing a 2xx series status code to the client, as defined in [RFC7231], Section 4.3.6.
+    // TODO: send HEADERS frame with 2xx status
+}
+#endif
+
+
 static void
 ngx_http_proxy_connect_tunnel(ngx_http_request_t *r,
     ngx_uint_t from_upstream, ngx_uint_t do_write)
@@ -668,6 +688,10 @@ ngx_http_proxy_connect_tunnel(ngx_http_request_t *r,
                    from_upstream, do_write);
 
     pc = u->peer.connection;
+
+#if (NGX_HTTP_V2)
+    // TODO: rewrite c->send, c->recv to read/write HTTP/2 DATA frame
+#endif
 
     if (from_upstream) {
         src = pc;
@@ -1471,6 +1495,17 @@ ngx_http_proxy_connect_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
     }
 
+#if (NGX_HTTP_V2)
+    /* check and preprocess v2 header */
+    /* The :scheme and :path pseudo-header fields MUST be omitted. */
+    // TODO: if has :scheme and :path, return 400
+
+
+    /* The :authority pseudo-header field contains the host and port to connect to */
+    // TODO:
+    //   r->connect_host, r->connect_port_n <- :authority
+#endif
+
     rc = ngx_http_proxy_connect_allow_handler(r, plcf);
 
     if (rc != NGX_OK) {
@@ -1486,6 +1521,8 @@ ngx_http_proxy_connect_handler(ngx_http_request_t *r)
     u = ctx->u;
 
     u->conf = plcf;
+
+    /* get or resolve upstream peer address */
 
     ngx_memzero(&url, sizeof(ngx_url_t));
 
@@ -2309,6 +2346,7 @@ ngx_http_proxy_connect_variable_set_response(ngx_http_request_t *r,
     ctx->buf.pos = (u_char *) v->data;
     ctx->buf.last = ctx->buf.pos + v->len;
 }
+
 
 static ngx_int_t
 ngx_http_proxy_connect_add_variables(ngx_conf_t *cf)
