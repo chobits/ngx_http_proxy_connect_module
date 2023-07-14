@@ -661,7 +661,15 @@ static void
 ngx_http_v2_proxy_connect_send_connection_established(ngx_http_request_t *r)
 {
     // A proxy that supports CONNECT establishes a TCP connection [TCP] to the server identified in the :authority pseudo-header field. Once this connection is successfully established, the proxy sends a HEADERS frame containing a 2xx series status code to the client, as defined in [RFC7231], Section 4.3.6.
-    // TODO: send HEADERS frame with 2xx status
+    ngx_int_t rc;
+
+    rc = ngx_http_send_response(r, 200, NULL, NULL);
+
+    if (rc == NGX_AGAIN) {
+
+    }
+
+    // TODO: error handling
 }
 #endif
 
@@ -1366,6 +1374,12 @@ ngx_http_proxy_connect_check_broken_connection(ngx_http_request_t *r,
 
         return;
     }
+
+#if (NGX_HTTP_V2)
+    if (r->stream) {
+        return;
+    }
+#endif
 
 #if (NGX_HAVE_KQUEUE)
 
