@@ -148,6 +148,7 @@ static ngx_int_t ngx_http_proxy_connect_create_peer(ngx_http_request_t *r,
 
 #if (NGX_HTTP_V2)
 static void ngx_http_v2_proxy_connect_send_connection_established(ngx_http_request_t *r);
+static ngx_int_t ngx_http_v2_proxy_connect_process_header(ngx_http_request_t *r);
 #endif
 
 
@@ -1496,14 +1497,12 @@ ngx_http_proxy_connect_handler(ngx_http_request_t *r)
     }
 
 #if (NGX_HTTP_V2)
-    /* check and preprocess v2 header */
-    /* The :scheme and :path pseudo-header fields MUST be omitted. */
-    // TODO: if has :scheme and :path, return 400
-
-
-    /* The :authority pseudo-header field contains the host and port to connect to */
-    // TODO:
-    //   r->connect_host, r->connect_port_n <- :authority
+    if (r->stream) {
+        rc = ngx_http_v2_proxy_connect_process_header(r);
+        if (rc != NGX_OK) {
+            return rc;
+        }
+    }
 #endif
 
     rc = ngx_http_proxy_connect_allow_handler(r, plcf);
@@ -1649,6 +1648,69 @@ ngx_http_proxy_connect_handler(ngx_http_request_t *r)
 
     return NGX_DONE;
 }
+
+
+#if (NGX_HTTP_V2)
+static ngx_int_t
+ngx_http_v2_proxy_connect_process_header(ngx_http_request_t *r)
+{
+    ngx_str_t host;
+    ngx_int_t port;
+
+    /* check and preprocess v2 header */
+    /* The :scheme and :path pseudo-header fields MUST be omitted. */
+    if (r->unparsed_uri.len) {
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                      "proxy_connect: client sent :path header.");
+
+        return NGX_HTTP_BAD_REQUEST;
+    }
+
+    if (r->schema.len) {
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                      "proxy_connect: client sent :schema header.");
+
+        return NGX_HTTP_BAD_REQUEST;
+    }
+
+    /* The :authority pseudo-header field contains the host and port to connect to */
+    /* :authority field is handled by ngx_http_process_host() */
+    if (r->headers_in.host == NULL) {
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                      "proxy_connect: client does not send :authority field.");
+
+
+        return NGX_HTTP_BAD_REQUEST;
+    }
+
+    /* initialized but not used */
+    host = r->headers_in.host->value;
+    r->connect_host_start = host.data;
+    r->connect_host_end = host.data + r->headers_in.server.len;
+
+    r->connect_port_end = host.data + host.len;
+
+    /* get connect_host: fields that has been processed by http/2 logic */
+    r->connect_host = r->headers_in.server;
+
+    /* get connect_port */
+
+    r->connect_port.data = r->connect_host_end + 1;
+    r->connect_port.len = r->connect_port_end - r->connect_host_end - 1;
+
+    port = ngx_atoi(r->connect_port.data, r->connect_port.len);
+    if (port == NGX_ERROR || port < 1 || port > 65535) {
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                      "proxy_connect: client sent invalid port in :authority");
+
+        return NGX_HTTP_BAD_REQUEST;
+    }
+
+    r->connect_port_n = port;
+
+    return NGX_OK;
+}
+#endif
 
 
 static ngx_int_t
