@@ -1677,20 +1677,29 @@ ngx_http_v2_proxy_connect_process_header(ngx_http_request_t *r)
     /* :authority field is handled by ngx_http_process_host() */
     if (r->headers_in.host == NULL) {
         ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
-                      "proxy_connect: client does not send :authority field.");
+                      "proxy_connect: client sent no :authority header.");
 
 
         return NGX_HTTP_BAD_REQUEST;
     }
 
     /* initialized but not used */
+
     host = r->headers_in.host->value;
     r->connect_host_start = host.data;
     r->connect_host_end = host.data + r->headers_in.server.len;
 
     r->connect_port_end = host.data + host.len;
 
+    if (r->connect_port_end == r->connect_host_end) {
+        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+                      "proxy_connect: client sent no port in :authority header");
+
+        return NGX_HTTP_BAD_REQUEST;
+    }
+
     /* get connect_host: fields that has been processed by http/2 logic */
+
     r->connect_host = r->headers_in.server;
 
     /* get connect_port */
@@ -1707,6 +1716,10 @@ ngx_http_v2_proxy_connect_process_header(ngx_http_request_t *r)
     }
 
     r->connect_port_n = port;
+
+    ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "proxy_connect: process h2 host: %V, port: %d",
+                   &r->connect_host, r->connect_port_n);
 
     return NGX_OK;
 }
