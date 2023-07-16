@@ -558,6 +558,13 @@ ngx_http_proxy_connect_send_connection_established(ngx_http_request_t *r)
         u->state.connect_time = ngx_current_msec - u->start_time;
     }
 
+#if (NGX_HTTP_V2)
+    if (r->stream) {
+        ngx_http_v2_proxy_connect_send_connection_established(r);
+        return;
+    }
+#endif
+
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
 
     b = &ctx->buf;
@@ -580,13 +587,6 @@ ngx_http_proxy_connect_send_connection_established(ngx_http_request_t *r)
     }
 
     ctx->send_established = 1;
-
-#if (NGX_HTTP_V2)
-    if (r->stream) {
-        ngx_http_v2_proxy_connect_send_connection_established(r);
-        return;
-    }
-#endif
 
     for (;;) {
         n = c->send(c, b->pos, b->last - b->pos);
@@ -661,15 +661,86 @@ static void
 ngx_http_v2_proxy_connect_send_connection_established(ngx_http_request_t *r)
 {
     // A proxy that supports CONNECT establishes a TCP connection [TCP] to the server identified in the :authority pseudo-header field. Once this connection is successfully established, the proxy sends a HEADERS frame containing a 2xx series status code to the client, as defined in [RFC7231], Section 4.3.6.
-    ngx_int_t rc;
+    ngx_int_t                           rc;
+    ngx_connection_t                   *c;
+    ngx_http_core_loc_conf_t           *clcf;
+    ngx_http_proxy_connect_ctx_t       *ctx;
+    ngx_http_proxy_connect_upstream_t  *u;
 
-    rc = ngx_http_send_response(r, 200, NULL, NULL);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_proxy_connect_module);
+
+    u = ctx->u;
+
+    c = r->connection;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+
+    if (ctx->send_established) {
+        rc = ngx_http_output_filter(r, NULL);
+
+    } else {
+        ctx->send_established = 1;
+
+        r->headers_out.status = 200;
+
+        /* ensure HERADERS frame: fin=0 */
+        r->headers_out.content_length_n = -1;
+
+        rc = ngx_http_send_header(r);
+    }
 
     if (rc == NGX_AGAIN) {
 
+        r->write_event_handler = ngx_http_proxy_connect_send_handler;
+
+        ngx_add_timer(c->write, ctx->data_timeout);
+
+        if (ngx_handle_write_event(c->write, clcf->send_lowat) != NGX_OK) {
+            ngx_http_proxy_connect_finalize_request(r, u,
+                    NGX_HTTP_INTERNAL_SERVER_ERROR);
+            return;
+        }
+
+        return;
     }
 
-    // TODO: error handling
+    if (rc == NGX_ERROR) {
+        ngx_http_proxy_connect_finalize_request(r, u, rc);
+        return;
+    }
+
+    if (rc > NGX_OK && rc != NGX_HTTP_OK) {
+        ngx_http_proxy_connect_finalize_request(r, u, rc);
+        return;
+    }
+
+    /* NGX_HTTP_OK or NGX_OK */
+
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, c->log, 0,
+            "proxy_connect: sent 200 connection established");
+
+    if (c->write->timer_set) {
+        ngx_del_timer(c->write);
+    }
+
+    ctx->send_established_done = 1;
+
+    r->write_event_handler = ngx_http_proxy_connect_write_downstream;
+    r->read_event_handler = ngx_http_proxy_connect_read_downstream;
+
+    if (ngx_handle_write_event(c->write, clcf->send_lowat) != NGX_OK) {
+        ngx_http_proxy_connect_finalize_request(r, u,
+                                                NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
+
+    if (c->read->ready) {
+        r->read_event_handler(r);
+        return;
+    }
+
+    return;
 }
 #endif
 
