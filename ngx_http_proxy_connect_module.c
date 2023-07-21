@@ -149,6 +149,8 @@ static ngx_int_t ngx_http_proxy_connect_create_peer(ngx_http_request_t *r,
 #if (NGX_HTTP_V2)
 static void ngx_http_v2_proxy_connect_send_connection_established(ngx_http_request_t *r);
 static ngx_int_t ngx_http_v2_proxy_connect_process_header(ngx_http_request_t *r);
+ssize_t ngx_http_v2_proxy_connect_recv(ngx_connection_t *c, u_char *buf, size_t size);
+ssize_t ngx_http_v2_proxy_connect_send(ngx_connection_t *c, u_char *buf, size_t size);
 #endif
 
 
@@ -770,7 +772,12 @@ ngx_http_proxy_connect_tunnel(ngx_http_request_t *r,
     pc = u->peer.connection;
 
 #if (NGX_HTTP_V2)
-    // TODO: rewrite c->send, c->recv to read/write HTTP/2 DATA frame
+    /* rewrite c->send, c->recv to read/write HTTP/2 DATA frame */
+
+    if (r->stream) {
+        r->connection->send = ngx_http_v2_proxy_connect_send;
+        r->connection->recv = ngx_http_v2_proxy_connect_recv;
+    }
 #endif
 
     if (from_upstream) {
@@ -907,6 +914,56 @@ ngx_http_proxy_connect_tunnel(ngx_http_request_t *r,
         }
     }
 }
+
+
+#if (NGX_HTTP_V2)
+ssize_t
+ngx_http_v2_proxy_connect_recv(ngx_connection_t *c, u_char *buf, size_t size)
+{
+    ngx_http_request_t *r = c->data;
+    // r->reading_body = ; // TODO
+    r->request_body_no_buffering = 1;
+
+    r->headers_in.content_length_n = -1;
+    r->headers_in.chunked = 1;
+
+    return 0;
+}
+
+
+ssize_t
+ngx_http_v2_proxy_connect_send(ngx_connection_t *c, u_char *buf, size_t size)
+{
+    ngx_http_request_t                 *r;
+    ngx_buf_t                          *b;
+    ngx_chain_t                         out;
+    ngx_http_proxy_connect_ctx_t       *ctx;
+    ngx_http_proxy_connect_upstream_t  *u;
+
+    r = c->data;
+    ctx = ngx_http_get_module_ctx(r, ngx_http_proxy_connect_module);
+
+    c = r->connection;
+    u = ctx->u;
+
+    /* disable the function of http core module: limit rate */
+    r->limit_rate = 0;
+    r->limit_rate_set = 1;
+
+    b = ngx_calloc_buf(r->pool);    //TODO: free b
+    if (b == NULL) {
+        return NGX_ERROR;
+    }
+
+    *b = u->buffer;
+
+    out.buf = b;
+    out.next = NULL;
+
+    return ngx_http_write_filter(r, &out);
+}
+#endif
+
 
 
 static void
