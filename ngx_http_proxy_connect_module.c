@@ -721,14 +721,44 @@ ngx_http_v2_proxy_connect_send_connection_established(ngx_http_request_t *r)
     r->write_event_handler = ngx_http_proxy_connect_write_downstream;
     r->read_event_handler = ngx_http_proxy_connect_read_downstream;
 
-    /*
-     * If there is an upstream read event, we dont need to handle
-     * it actively here.
-     *
-     * We can read the client body data (DATA frame) actively here.
-     */
+    /* init request_body for reading DATA frame from http2 */
 
-    r->read_event_handler(r);
+#if 0
+    r->main->count--;   /* ++ in ngx_http_read_client_request_body */
+    rc = ngx_http_read_client_request_body(r,
+                                        ngx_http_proxy_connect_read_downstream);
+
+    if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+        ngx_http_proxy_connect_finalize_request(r, u, rc);
+        return;
+    }
+#else
+    {
+    ngx_http_request_body_t *rb;
+
+    rb = ngx_pcalloc(r->pool, sizeof(ngx_http_request_body_t));
+
+    if (rb == NULL) {
+        ngx_http_proxy_connect_finalize_request(r, u,
+                                                NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
+
+    rb->rest = -1;
+    rb->post_handler = ngx_http_proxy_connect_read_downstream;
+
+    r->request_body = rb;
+
+    rc = ngx_http_v2_read_request_body(r);
+
+    if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+        ngx_http_proxy_connect_finalize_request(r, u, rc);
+        return;
+    }
+
+    return;
+    }
+#endif
 }
 #endif
 
