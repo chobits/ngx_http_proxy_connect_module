@@ -10,7 +10,7 @@ jobs:
   test-openresty:
     strategy:
        matrix:
-         version: [1.21.4.2rc1]
+         version: [1.21.4.3, 1.25.3.1]
        fail-fast: false
     runs-on: "ubuntu-20.04"
 
