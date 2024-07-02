@@ -1309,20 +1309,34 @@ ngx_http_proxy_connect_check_broken_connection(ngx_http_request_t *r,
     ngx_event_t *ev)
 {
     int                                 n;
-    char                                buf[1];
     ngx_err_t                           err;
     ngx_int_t                           event;
     ngx_connection_t                   *c;
     ngx_http_proxy_connect_ctx_t       *ctx;
     ngx_http_proxy_connect_upstream_t  *u;
+    size_t                             size;
 
     ngx_log_debug3(NGX_LOG_DEBUG_HTTP, ev->log, 0,
                    "proxy_connect: check client, write event:%d, \"%V:%V\"",
                    ev->write, &r->connect_host, &r->connect_port);
+    ngx_buf_t                           *b;
 
     c = r->connection;
     ctx = ngx_http_get_module_ctx(r, ngx_http_proxy_connect_module);
     u = ctx->u;
+    b = &u->from_client;
+    if (b->start == NULL) {
+        b->start = ngx_palloc(r->pool, u->conf->buffer_size);
+        if (b->start == NULL) {
+            ngx_http_proxy_connect_finalize_request(r, u, NGX_ERROR);
+            return;
+        }
+
+        b->pos = b->start;
+        b->last = b->start;
+        b->end = b->start + u->conf->buffer_size;
+        b->temporary = 1;
+    }
 
     if (c->error) {
         if ((ngx_event_flags & NGX_USE_LEVEL_EVENT) && ev->active) {
@@ -1381,7 +1395,15 @@ ngx_http_proxy_connect_check_broken_connection(ngx_http_request_t *r,
 
 #endif
 
-    n = recv(c->fd, buf, 1, MSG_PEEK);
+    size = b->end - b->last;
+    if (size == 0) {
+        ngx_log_error(NGX_LOG_ERR, ev->log, 0,
+                      "proxy_connect: check the connection status. the buffer collection is full");
+        ngx_http_proxy_connect_finalize_request(r, u,
+                                                NGX_ERROR);
+        return;
+    }
+    n = c->recv(c, b->last, size);
 
     err = ngx_socket_errno;
 
@@ -1404,6 +1426,7 @@ ngx_http_proxy_connect_check_broken_connection(ngx_http_request_t *r,
     }
 
     if (n > 0) {
+        b->last += n;
         return;
     }
 
