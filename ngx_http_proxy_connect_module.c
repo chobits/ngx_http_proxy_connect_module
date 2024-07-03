@@ -1381,7 +1381,14 @@ ngx_http_proxy_connect_check_broken_connection(ngx_http_request_t *r,
 
 #endif
 
-    n = recv(c->fd, buf, 1, MSG_PEEK);
+#if NGX_HTTP_SSL
+    if (c->ssl != NULL) {
+        n = SSL_peek(c->ssl->connection, buf, 1);
+    } else
+#endif
+    {
+        n = recv(c->fd, buf, 1, MSG_PEEK);
+    }
 
     err = ngx_socket_errno;
 
