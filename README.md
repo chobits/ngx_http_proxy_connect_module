@@ -367,7 +367,8 @@ Select patch
 | 1.19.x ~ 1.21.0  | YES | [proxy_connect_rewrite_1018.patch](patch/proxy_connect_rewrite_1018.patch) |
 | 1.21.1 ~ 1.22.x  | YES | [proxy_connect_rewrite_102101.patch](patch/proxy_connect_rewrite_102101.patch) |
 | 1.23.x ~ 1.24.0  | YES | [proxy_connect_rewrite_102101.patch](patch/proxy_connect_rewrite_102101.patch) |
-| 1.25.0 ~ 1.25.x  | YES | [proxy_connect_rewrite_102101.patch](patch/proxy_connect_rewrite_102101.patch) |
+| 1.25.0 ~ 1.26.x  | YES | [proxy_connect_rewrite_102101.patch](patch/proxy_connect_rewrite_102101.patch) |
+| 1.27.1           | YES | [proxy_connect_rewrite_102101.patch](patch/proxy_connect_rewrite_102101.patch) |
 
 | OpenResty version | enable REWRITE phase | patch |
 | --: | --: | --: |
@@ -735,7 +736,8 @@ Nginx Compatibility
 
 The latest module is compatible with the following versions of nginx:
 
-* 1.25.4  (mainline version of 1.25.x)
+* 1.27.1  (mainline version of 1.27.x)
+* 1.26.2  (version of 1.26.x)
 * 1.24.0  (version of 1.24.x)
 * 1.22.1  (version of 1.22.x)
 * 1.20.2  (version of 1.20.x)
