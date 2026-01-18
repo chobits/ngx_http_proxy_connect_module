@@ -369,6 +369,7 @@ Select patch
 | 1.23.x ~ 1.24.0  | YES | [proxy_connect_rewrite_102101.patch](patch/proxy_connect_rewrite_102101.patch) |
 | 1.25.0 ~ 1.26.x  | YES | [proxy_connect_rewrite_102101.patch](patch/proxy_connect_rewrite_102101.patch) |
 | 1.27.1           | YES | [proxy_connect_rewrite_102101.patch](patch/proxy_connect_rewrite_102101.patch) |
+| 1.29.4           | YES | [proxy_connect_rewrite_102904.patch](patch/proxy_connect_rewrite_102904.patch) |
 
 | OpenResty version | enable REWRITE phase | patch |
 | --: | --: | --: |
