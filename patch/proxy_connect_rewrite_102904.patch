@@ -1,0 +1,307 @@
+diff --git a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
+index c75ddb849..32b4b6826 100644
+--- a/src/http/ngx_http_core_module.c
++++ b/src/http/ngx_http_core_module.c
+@@ -971,6 +971,14 @@ ngx_http_core_find_config_phase(ngx_http_request_t *r,
+     r->content_handler = NULL;
+     r->uri_changed = 0;
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++    if (r->method == NGX_HTTP_CONNECT) {
++        ngx_http_update_location_config(r);
++        r->phase_handler++;
++        return NGX_AGAIN;
++    }
++#endif
++
+     rc = ngx_http_core_find_location(r);
+ 
+     if (rc == NGX_ERROR) {
+diff --git a/src/http/ngx_http_parse.c b/src/http/ngx_http_parse.c
+index e60dc425e..b143b83f7 100644
+--- a/src/http/ngx_http_parse.c
++++ b/src/http/ngx_http_parse.c
+@@ -107,6 +107,14 @@ ngx_http_parse_request_line(ngx_http_request_t *r, ngx_buf_t *b)
+     enum {
+         sw_start = 0,
+         sw_method,
++#if (NGX_HTTP_PROXY_CONNECT)
++        sw_spaces_before_connect_host,
++        sw_connect_host_start,
++        sw_connect_host,
++        sw_connect_host_end,
++        sw_connect_host_ip_literal,
++        sw_connect_port,
++#endif
+         sw_spaces_before_uri,
+         sw_schema,
+         sw_schema_slash,
+@@ -249,7 +257,12 @@ ngx_http_parse_request_line(ngx_http_request_t *r, ngx_buf_t *b)
+                     if (ngx_str7_cmp(m, 'C', 'O', 'N', 'N', 'E', 'C', 'T', ' '))
+                     {
+                         r->method = NGX_HTTP_CONNECT;
++#if (NGX_HTTP_PROXY_CONNECT)
++                        state = sw_spaces_before_connect_host;
++#else
+                         state = sw_spaces_before_host;
++#endif
++
+                     }
+ 
+                     break;
+@@ -281,6 +294,111 @@ ngx_http_parse_request_line(ngx_http_request_t *r, ngx_buf_t *b)
+ 
+             break;
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++        case sw_spaces_before_connect_host:
++
++            if (ch == ' ') {
++                break;
++            }
++
++            /* fall through */
++
++        case sw_connect_host_start:
++
++            r->connect_host_start = p;
++
++            if (ch == '[') {
++                state = sw_connect_host_ip_literal;
++                break;
++            }
++
++            state = sw_connect_host;
++
++            /* fall through */
++
++        case sw_connect_host:
++
++            c = (u_char) (ch | 0x20);
++            if (c >= 'a' && c <= 'z') {
++                break;
++            }
++
++            if ((ch >= '0' && ch <= '9') || ch == '.' || ch == '-') {
++                break;
++            }
++
++            /* fall through */
++
++        case sw_connect_host_end:
++
++            r->connect_host_end = p;
++
++            switch (ch) {
++            case ':':
++                state = sw_connect_port;
++                break;
++            default:
++                return NGX_HTTP_PARSE_INVALID_REQUEST;
++            }
++            break;
++
++        case sw_connect_host_ip_literal:
++
++            if (ch >= '0' && ch <= '9') {
++                break;
++            }
++
++            c = (u_char) (ch | 0x20);
++            if (c >= 'a' && c <= 'z') {
++                break;
++            }
++
++            switch (ch) {
++            case ':':
++                break;
++            case ']':
++                state = sw_connect_host_end;
++                break;
++            case '-':
++            case '.':
++            case '_':
++            case '~':
++                /* unreserved */
++                break;
++            case '!':
++            case '$':
++            case '&':
++            case '\'':
++            case '(':
++            case ')':
++            case '*':
++            case '+':
++            case ',':
++            case ';':
++            case '=':
++                /* sub-delims */
++                break;
++            default:
++                return NGX_HTTP_PARSE_INVALID_REQUEST;
++            }
++            break;
++
++        case sw_connect_port:
++            if (ch >= '0' && ch <= '9') {
++                break;
++            }
++
++            switch (ch) {
++            case ' ':
++                r->connect_port_end = p;
++                state = sw_http_09;
++                break;
++            default:
++                return NGX_HTTP_PARSE_INVALID_REQUEST;
++            }
++            break;
++#endif
++
+         /* space* before URI */
+         case sw_spaces_before_uri:
+ 
+diff --git a/src/http/ngx_http_request.c b/src/http/ngx_http_request.c
+index 41c1cda04..349d18cae 100644
+--- a/src/http/ngx_http_request.c
++++ b/src/http/ngx_http_request.c
+@@ -1156,6 +1156,55 @@ ngx_http_process_request_line(ngx_event_t *rev)
+                 r->http_protocol.len = r->request_end - r->http_protocol.data;
+             }
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++
++            if (r->connect_host_start && r->connect_host_end) {
++
++                host.len = r->connect_host_end - r->connect_host_start;
++                host.data = r->connect_host_start;
++                rc = ngx_http_validate_host(&host, NULL, r->pool, 0);
++
++                if (rc == NGX_DECLINED) {
++                    ngx_log_error(NGX_LOG_INFO, c->log, 0,
++                                  "client sent invalid host in request line");
++                    ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
++                    return;
++                }
++
++                if (rc == NGX_ERROR) {
++                    ngx_http_close_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
++                    return;
++                }
++
++                r->connect_host = host;
++
++                if (!r->connect_port_end) {
++                   ngx_log_error(NGX_LOG_INFO, c->log, 0,
++                                  "client sent no port in request line");
++                    ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
++                    return;
++                }
++
++                r->connect_port.data = r->connect_host_end + 1;
++                r->connect_port.len = r->connect_port_end
++                                      - r->connect_host_end - 1;
++
++                ngx_int_t port;
++
++                port = ngx_atoi(r->connect_port.data, r->connect_port.len);
++                if (port == NGX_ERROR || port < 1 || port > 65535) {
++                    ngx_log_error(NGX_LOG_INFO, c->log, 0,
++                                  "client sent invalid port in request line");
++                    ngx_http_finalize_request(r, NGX_HTTP_BAD_REQUEST);
++                    return;
++                }
++
++                r->connect_port_n = port;
++
++                /* skip processing request uri */
++            } else
++#endif
++
+             if (ngx_http_process_request_uri(r) != NGX_OK) {
+                 break;
+             }
+@@ -1761,6 +1810,19 @@ ngx_http_alloc_large_header_buffer(ngx_http_request_t *r,
+             }
+         }
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++        if (r->connect_host_start) {
++            r->connect_host_start = new + (r->connect_host_start - old);
++            if (r->connect_host_end) {
++                r->connect_host_end = new + (r->connect_host_end - old);
++            }
++
++            if (r->connect_port_end) {
++                r->connect_port_end = new + (r->connect_port_end - old);
++            }
++        }
++#endif
++
+         if (r->host_start) {
+             r->host_start = new + (r->host_start - old);
+             if (r->host_end) {
+@@ -2061,6 +2123,15 @@ ngx_http_process_request_header(ngx_http_request_t *r)
+ 
+     cscf = ngx_http_get_module_srv_conf(r, ngx_http_core_module);
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++    (void) cscf;
++    if (r->method == NGX_HTTP_CONNECT && r->connect_host_start == NULL) {
++        ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
++                      "client sent CONNECT method");
++        ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
++        return NGX_ERROR;
++    }
++#else
+     if (r->method == NGX_HTTP_CONNECT
+         && (r->http_version != NGX_HTTP_VERSION_11 || !cscf->allow_connect))
+     {
+@@ -2069,6 +2140,7 @@ ngx_http_process_request_header(ngx_http_request_t *r)
+         ngx_http_finalize_request(r, NGX_HTTP_NOT_ALLOWED);
+         return NGX_ERROR;
+     }
++#endif
+ 
+     if (r->method == NGX_HTTP_TRACE) {
+         ngx_log_error(NGX_LOG_INFO, r->connection->log, 0,
+diff --git a/src/http/ngx_http_request.h b/src/http/ngx_http_request.h
+index 1b012f810..1fa787f05 100644
+--- a/src/http/ngx_http_request.h
++++ b/src/http/ngx_http_request.h
+@@ -420,6 +420,15 @@ struct ngx_http_request_s {
+     ngx_str_t                         exten;
+     ngx_str_t                         unparsed_uri;
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++    ngx_str_t                         connect_host;
++    ngx_str_t                         connect_port;
++    in_port_t                         connect_port_n;
++    u_char                           *connect_host_start;
++    u_char                           *connect_host_end;
++    u_char                           *connect_port_end;
++#endif
++
+     ngx_str_t                         method_name;
+     ngx_str_t                         http_protocol;
+     ngx_str_t                         schema;
+diff --git a/src/http/ngx_http_variables.c b/src/http/ngx_http_variables.c
+index dd69bcfcd..b4769d813 100644
+--- a/src/http/ngx_http_variables.c
++++ b/src/http/ngx_http_variables.c
+@@ -167,6 +167,14 @@ static ngx_int_t ngx_http_variable_time_local(ngx_http_request_t *r,
+ 
+ static ngx_http_variable_t  ngx_http_core_variables[] = {
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++    { ngx_string("connect_host"), NULL, ngx_http_variable_request,
++      offsetof(ngx_http_request_t, connect_host), 0, 0 },
++
++    { ngx_string("connect_port"), NULL, ngx_http_variable_request,
++      offsetof(ngx_http_request_t, connect_port), 0, 0 },
++#endif
++
+     { ngx_string("http_host"), NULL, ngx_http_variable_header,
+       offsetof(ngx_http_request_t, headers_in.host), 0, 0 },
+ 
+
