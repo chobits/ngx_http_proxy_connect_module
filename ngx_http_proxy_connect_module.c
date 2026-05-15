@@ -1759,10 +1759,16 @@ static char *
 ngx_http_proxy_connect(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     ngx_http_core_loc_conf_t            *clcf;
+    ngx_http_core_srv_conf_t            *cscf;
     ngx_http_proxy_connect_loc_conf_t   *pclcf;
 
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
     clcf->handler = ngx_http_proxy_connect_handler;
+
+    cscf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_core_module);
+        if (cscf != NULL) {
+            cscf->allow_connect = 1;
+        }
 
     pclcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_proxy_connect_module);
     pclcf->accept_connect = 1;
