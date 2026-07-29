@@ -1,0 +1,96 @@
+diff --git a/src/http/ngx_http_core_module.c b/src/http/ngx_http_core_module.c
+--- a/src/http/ngx_http_core_module.c
++++ b/src/http/ngx_http_core_module.c
+@@ -978,6 +978,14 @@ ngx_http_core_find_config_phase(ngx_http_request_t *r,
+     r->content_handler = NULL;
+     r->uri_changed = 0;
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++    if (r->method == NGX_HTTP_CONNECT) {
++        ngx_http_update_location_config(r);
++        r->phase_handler++;
++        return NGX_AGAIN;
++    }
++#endif
++
+     rc = ngx_http_core_find_location(r);
+ 
+     if (rc == NGX_ERROR) {
+diff --git a/src/http/ngx_http_request.c b/src/http/ngx_http_request.c
+--- a/src/http/ngx_http_request.c
++++ b/src/http/ngx_http_request.c
+@@ -1199,6 +1199,26 @@ ngx_http_process_request_line(ngx_event_t *rev)
+ 
+                 r->headers_in.server = host;
+                 r->port = port;
++
++#if (NGX_HTTP_PROXY_CONNECT)
++                if (r->method == NGX_HTTP_CONNECT) {
++                    r->connect_host = r->headers_in.server;
++                    r->connect_port_n = r->port;
++
++                    r->connect_port.data = ngx_pnalloc(r->pool,
++                                                        NGX_INT_T_LEN);
++                    if (r->connect_port.data == NULL) {
++                        ngx_http_close_request(r,
++                                               NGX_HTTP_INTERNAL_SERVER_ERROR);
++                        break;
++                    }
++
++                    r->connect_port.len = ngx_sprintf(r->connect_port.data,
++                                                       "%d", r->port)
++                                          - r->connect_port.data;
++                }
++#endif
++
+             }
+ 
+             if (r->http_version < NGX_HTTP_VERSION_10) {
+@@ -2092,6 +2092,8 @@ ngx_http_process_request_header(ngx_http_request_t *r)
+         }
+     }
+ 
++#if !(NGX_HTTP_PROXY_CONNECT)
++
+     cscf = ngx_http_get_module_srv_conf(r, ngx_http_core_module);
+ 
+     if (r->method == NGX_HTTP_CONNECT) {
+@@ -2108,3 +2109,4 @@ ngx_http_process_request_header(ngx_http_request_t *r)
+     }
+ 
++#endif
+     if (r->method == NGX_HTTP_TRACE) {
+diff --git a/src/http/ngx_http_request.h b/src/http/ngx_http_request.h
+--- a/src/http/ngx_http_request.h
++++ b/src/http/ngx_http_request.h
+@@ -424,6 +424,12 @@ struct ngx_http_request_s {
+     ngx_str_t                         exten;
+     ngx_str_t                         unparsed_uri;
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++    ngx_str_t                         connect_host;
++    ngx_str_t                         connect_port;
++    in_port_t                         connect_port_n;
++#endif
++
+     ngx_str_t                         method_name;
+     ngx_str_t                         http_protocol;
+     ngx_str_t                         schema;
+diff --git a/src/http/ngx_http_variables.c b/src/http/ngx_http_variables.c
+--- a/src/http/ngx_http_variables.c
++++ b/src/http/ngx_http_variables.c
+@@ -167,6 +167,14 @@ ngx_http_variable_time_local(ngx_http_request_t *r,
+ 
+ static ngx_http_variable_t  ngx_http_core_variables[] = {
+ 
++#if (NGX_HTTP_PROXY_CONNECT)
++    { ngx_string("connect_host"), NULL, ngx_http_variable_request,
++      offsetof(ngx_http_request_t, connect_host), 0, 0 },
++
++    { ngx_string("connect_port"), NULL, ngx_http_variable_request,
++      offsetof(ngx_http_request_t, connect_port), 0, 0 },
++#endif
++
+     { ngx_string("http_host"), NULL, ngx_http_variable_header,
+       offsetof(ngx_http_request_t, headers_in.host), 0, 0 },
+ 
